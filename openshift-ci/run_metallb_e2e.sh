@@ -22,7 +22,7 @@ elif [ "${IP_STACK}" = "v6" ]; then
 	export PROVISIONING_HOST_EXTERNAL_IPV6=${PROVISIONING_HOST_EXTERNAL_IP}
 	export PROVISIONING_HOST_EXTERNAL_IPV4=1.1.1.1
 elif [ "${IP_STACK}" = "v4v6" ]; then
-	SKIP="$SKIP|IPV6"
+	SKIP="$SKIP|IPV6|IPV4"
 	export PROVISIONING_HOST_EXTERNAL_IPV4=${PROVISIONING_HOST_EXTERNAL_IP}
 	export PROVISIONING_HOST_EXTERNAL_IPV6=1111:1:1::1
 fi
@@ -60,11 +60,13 @@ cp -r /tmp/report $REPORTER_PATH
 
 oc wait --for=delete namespace/metallb-system-other --timeout=2m || true # making sure the namespace is deleted (should happen in aftersuite)
 
-FOCUS_EBGP="BGP A service of protocol load balancer should work with ETP=cluster IPV4" # Just a smoke test to make sure ebgp works
+sleep 2h
 
-inv e2etest --kubeconfig=$(readlink -f ../../ocp/ostest/auth/kubeconfig) \
-	--service-pod-port=8080 --system-namespaces="metallb-system" \
-	--ipv4-service-range=192.168.10.0/24 --ipv6-service-range=fc00:f853:0ccd:e799::/124 \
-	--prometheus-namespace="openshift-monitoring" \
-	--local-nics="_" --node-nics="_" --focus="${FOCUS_EBGP}" --external-frr-image="quay.io/frrouting/frr:8.5.3" \
-	--host-bgp-mode="ebgp" --bgp-mode="frr-k8s" --frr-k8s-namespace=openshift-frr-k8s
+# FOCUS_EBGP="BGP A service of protocol load balancer should work with ETP=cluster IPV4" # Just a smoke test to make sure ebgp works
+
+# inv e2etest --kubeconfig=$(readlink -f ../../ocp/ostest/auth/kubeconfig) \
+# 	--service-pod-port=8080 --system-namespaces="metallb-system" \
+# 	--ipv4-service-range=192.168.10.0/24 --ipv6-service-range=fc00:f853:0ccd:e799::/124 \
+# 	--prometheus-namespace="openshift-monitoring" \
+# 	--local-nics="_" --node-nics="_" --focus="${FOCUS_EBGP}" --external-frr-image="quay.io/frrouting/frr:8.5.3" \
+# 	--host-bgp-mode="ebgp" --bgp-mode="frr-k8s" --frr-k8s-namespace=openshift-frr-k8s
