@@ -15,6 +15,10 @@ SKIP="$SKIP\|should.*remove.*and.*restore.*FRRNodeState.*when.*daemonset.*nodeSe
 SKIP="$SKIP\|BGPSessionState.*Manages.*statuses.*according.*to.*changes"
 # Skip until CNO and u/s labels are aligned for the status cleaner.
 SKIP="$SKIP\|Logging.*for.*status.*cleaner"
+# Skip until the infra supports EVPN
+SKIP="$SKIP\|EVPN.*"
+# Skip until infra supports ebgp containers
+SKIP="$SKIP\|AllowAsIn.*"
 
 FRRK8S_NAMESPACE="openshift-frr-k8s"
 
