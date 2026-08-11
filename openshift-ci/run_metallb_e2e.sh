@@ -1,6 +1,9 @@
 #!/usr/bin/bash
 set -euo pipefail
 
+metallb_dir="$(dirname $(readlink -f $0))"
+source ${metallb_dir}/common.sh
+
 IP_STACK=$1
 
 # need to skip L2 metrics / node selector test because the pod that's running the tests is not
