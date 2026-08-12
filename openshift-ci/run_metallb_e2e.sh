@@ -23,9 +23,6 @@ echo external subnet ipv4: $EXTERNAL_SUBNET_V4
 echo external subnet ipv6: $EXTERNAL_SUBNET_V6
 echo "======================debug output of env vars - end ========================"
 
-echo "DEBUG: nthhost_ipcalc EXTERNAL_SUBNET_V6 1 = $(nthhost_ipcalc "$EXTERNAL_SUBNET_V6" "1" 2>&1 || true)"
-echo "DEBUG: nthhost_pureshell EXTERNAL_SUBNET_V6 1 = $(nthhost_pureshell "$EXTERNAL_SUBNET_V6" "1" 2>&1 || true)"
-
 if [ "${IP_STACK}" = "v4" ]; then
 	SKIP="$SKIP|IPV6|DUALSTACK"
 	export PROVISIONING_HOST_EXTERNAL_IPV4=${PROVISIONING_HOST_EXTERNAL_IP}
@@ -37,7 +34,7 @@ elif [ "${IP_STACK}" = "v6" ]; then
 elif [ "${IP_STACK}" = "v4v6" ]; then
 	SKIP="$SKIP|IPV6|IPV4"
 	export PROVISIONING_HOST_EXTERNAL_IPV4=${PROVISIONING_HOST_EXTERNAL_IP}
-	export PROVISIONING_HOST_EXTERNAL_IPV6=$(nthhost_pureshell "$EXTERNAL_SUBNET_V6" "1")
+	export PROVISIONING_HOST_EXTERNAL_IPV6=$(nthhost "$EXTERNAL_SUBNET_V6" 1)
 fi
 echo "Skipping ${SKIP}"
 
