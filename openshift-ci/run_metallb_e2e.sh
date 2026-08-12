@@ -71,8 +71,6 @@ cp -r /tmp/report $REPORTER_PATH
 
 oc wait --for=delete namespace/metallb-system-other --timeout=2m || true # making sure the namespace is deleted (should happen in aftersuite)
 
-sleep 2h
-
 # FOCUS_EBGP="BGP A service of protocol load balancer should work with ETP=cluster IPV4" # Just a smoke test to make sure ebgp works
 
 # inv e2etest --kubeconfig=$(readlink -f ../../ocp/ostest/auth/kubeconfig) \
