@@ -65,7 +65,7 @@ inv e2etest --kubeconfig=$(readlink -f ../../ocp/ostest/auth/kubeconfig) \
 	--prometheus-namespace="openshift-monitoring" \
 	--local-nics="_" --node-nics="_" --skip="${SKIP}" --external-frr-image="quay.io/frrouting/frr:8.5.3" \
 	--bgp-mode="frr-k8s" --frr-k8s-namespace=openshift-frr-k8s \
-	--ginkgo-params="-v"
+	--ginkgo-params=" -v" # leading space so invoke does not steal -v as its own verbose flag
 
 cp -r /tmp/report $REPORTER_PATH
 
