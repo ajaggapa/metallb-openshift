@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.universe.tf/e2etest/pkg/config"
 	"go.universe.tf/e2etest/pkg/frr"
 	frrcontainer "go.universe.tf/e2etest/pkg/frr/container"
 	"go.universe.tf/e2etest/pkg/ipfamily"
@@ -169,20 +171,58 @@ func frrIsPairedOnPods(cs clientset.Interface, n *frrcontainer.FRR, ipFamily ipf
 	}, 4*time.Minute, 1*time.Second).ShouldNot(HaveOccurred())
 }
 
+func bfdPeerDebugString(peer frr.BFDPeer) string {
+	return fmt.Sprintf(
+		"status=%q diagnostic=%q remote-diagnostic=%q local=%s vrf=%q multihop=%v "+
+			"rx=%d tx=%d echo-rx=%d remote-rx=%d remote-tx=%d remote-echo-rx=%d uptime=%d",
+		peer.Status, peer.Diagnostic, peer.RemoteDiagnostic, peer.Local, peer.Vrf, peer.Multihop,
+		peer.ReceiveInterval, peer.TransmitInterval, peer.EchoReceiveInterval,
+		peer.RemoteReceiveInterval, peer.RemoteTransmitInterval, peer.RemoteEchoReceiveInterval,
+		peer.Uptime,
+	)
+}
+
+func bfdPeersStatusSummary(peers map[string]frr.BFDPeer) string {
+	parts := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		parts = append(parts, fmt.Sprintf("%s=%s", peer.Peer, peer.Status))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
+}
+
 func checkBFDConfigPropagated(nodeConfig metallbv1beta1.BFDProfile, peerConfig frr.BFDPeer) error {
 	if peerConfig.Status != "up" {
-		return fmt.Errorf("peer status not up")
+		return fmt.Errorf("peer status not up: %s", bfdPeerDebugString(peerConfig))
 	}
 	if peerConfig.RemoteReceiveInterval != int(*nodeConfig.Spec.ReceiveInterval) {
-		return fmt.Errorf("remoteReceiveInterval: expecting %d, got %d", *nodeConfig.Spec.ReceiveInterval, peerConfig.RemoteReceiveInterval)
+		return fmt.Errorf("remoteReceiveInterval: expecting %d, got %d (%s)",
+			*nodeConfig.Spec.ReceiveInterval, peerConfig.RemoteReceiveInterval, bfdPeerDebugString(peerConfig))
 	}
 	if peerConfig.RemoteTransmitInterval != int(*nodeConfig.Spec.TransmitInterval) {
-		return fmt.Errorf("remoteTransmitInterval: expecting %d, got %d", *nodeConfig.Spec.TransmitInterval, peerConfig.RemoteTransmitInterval)
+		return fmt.Errorf("remoteTransmitInterval: expecting %d, got %d (%s)",
+			*nodeConfig.Spec.TransmitInterval, peerConfig.RemoteTransmitInterval, bfdPeerDebugString(peerConfig))
 	}
 	if peerConfig.RemoteEchoReceiveInterval != int(*nodeConfig.Spec.EchoInterval) {
-		return fmt.Errorf("echoInterval: expecting %d, got %d", *nodeConfig.Spec.EchoInterval, peerConfig.RemoteEchoReceiveInterval)
+		return fmt.Errorf("echoInterval: expecting %d, got %d (%s)",
+			*nodeConfig.Spec.EchoInterval, peerConfig.RemoteEchoReceiveInterval, bfdPeerDebugString(peerConfig))
 	}
 	return nil
+}
+
+func validateBFDPeersPropagated(containerName string, bfd metallbv1beta1.BFDProfile, peers map[string]frr.BFDPeer) error {
+	var errs []error
+	for _, peerConfig := range peers {
+		toCompare := config.BFDProfileWithDefaults(bfd, peerConfig.Multihop)
+		if err := checkBFDConfigPropagated(toCompare, peerConfig); err != nil {
+			errs = append(errs, fmt.Errorf("container %s peer %s: %w", containerName, peerConfig.Peer, err))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d BFD peer(s) not ready on %s (all peers: [%s]): %w",
+		len(errs), containerName, bfdPeersStatusSummary(peers), errors.Join(errs...))
 }
 
 func checkServiceOnlyOnNodes(svc *corev1.Service, expectedNodes []corev1.Node, ipFamily ipfamily.Family) {

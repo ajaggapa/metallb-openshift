@@ -825,19 +825,15 @@ var _ = ginkgo.Describe("BGP", func() {
 				for _, c := range FRRContainers {
 					bfdPeers, err := frr.BFDPeers(c.Executor)
 					if err != nil {
-						return err
+						return fmt.Errorf("container %s: failed to get BFD peers: %w", c.Name, err)
 					}
 					err = frr.BFDPeersMatchNodes(allNodes.Items, bfdPeers, pairingFamily, c.RouterConfig.VRF)
 					if err != nil {
-						return err
+						return fmt.Errorf("container %s: BFD peers mismatch (found %d peers [%s], pairingFamily=%s, vrf=%q): %w",
+							c.Name, len(bfdPeers), bfdPeersStatusSummary(bfdPeers), pairingFamily, c.RouterConfig.VRF, err)
 					}
-					for _, peerConfig := range bfdPeers {
-						toCompare := config.BFDProfileWithDefaults(bfd, peerConfig.Multihop)
-						ginkgo.By(fmt.Sprintf("Checking bfd parameters on %s", peerConfig.Peer))
-						err := checkBFDConfigPropagated(toCompare, peerConfig)
-						if err != nil {
-							return err
-						}
+					if err := validateBFDPeersPropagated(c.Name, bfd, bfdPeers); err != nil {
+						return err
 					}
 				}
 				return nil
