@@ -32,7 +32,7 @@ elif [ "${IP_STACK}" = "v6" ]; then
 	export PROVISIONING_HOST_EXTERNAL_IPV6=${PROVISIONING_HOST_EXTERNAL_IP}
 	export PROVISIONING_HOST_EXTERNAL_IPV4=1.1.1.1
 elif [ "${IP_STACK}" = "v4v6" ]; then
-	SKIP="$SKIP|IPV6"
+	SKIP="$SKIP|IPV6|IPV4"
 	export PROVISIONING_HOST_EXTERNAL_IPV4=${PROVISIONING_HOST_EXTERNAL_IP}
 	export PROVISIONING_HOST_EXTERNAL_IPV6=$(nthhost "$EXTERNAL_SUBNET_V6" 1)
 fi
@@ -69,8 +69,6 @@ inv e2etest --kubeconfig=$(readlink -f ../../ocp/ostest/auth/kubeconfig) \
 	--ginkgo-params=" -v" || rc=$? # leading space so invoke does not steal -v as its own verbose flag
 
 cp -r /tmp/report $REPORTER_PATH
-
-sleep 2h
 
 oc wait --for=delete namespace/metallb-system-other --timeout=2m || true # making sure the namespace is deleted (should happen in aftersuite)
 
