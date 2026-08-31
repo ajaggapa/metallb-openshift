@@ -821,21 +821,31 @@ var _ = ginkgo.Describe("BGP", func() {
 				validateService(svc, allNodes.Items, c)
 			}
 
-			ginkgo.By("collecting BFD debug info from worker0 before validation")
-			dumpBFDPairDebugInfo(cs, "worker0", FRRContainers)
+			ginkgo.By("collecting BFD debug info before validation")
+			dumpBFDPairDebugInfo(cs, allNodes.Items, FRRContainers)
 
+			bfdDebugDumped := false
+			dumpBFDOnFailure := func() {
+				if !bfdDebugDumped {
+					bfdDebugDumped = true
+					dumpBFDPairDebugInfo(cs, allNodes.Items, FRRContainers)
+				}
+			}
 			Eventually(func() error {
 				for _, c := range FRRContainers {
 					bfdPeers, err := frr.BFDPeers(c.Executor)
 					if err != nil {
+						dumpBFDOnFailure()
 						return fmt.Errorf("container %s: failed to get BFD peers: %w", c.Name, err)
 					}
 					err = frr.BFDPeersMatchNodes(allNodes.Items, bfdPeers, pairingFamily, c.RouterConfig.VRF)
 					if err != nil {
+						dumpBFDOnFailure()
 						return fmt.Errorf("container %s: BFD peers mismatch (found %d peers [%s], pairingFamily=%s, vrf=%q): %w",
 							c.Name, len(bfdPeers), bfdPeersStatusSummary(bfdPeers), pairingFamily, c.RouterConfig.VRF, err)
 					}
 					if err := validateBFDPeersPropagated(c.Name, bfd, bfdPeers); err != nil {
+						dumpBFDOnFailure()
 						return err
 					}
 				}

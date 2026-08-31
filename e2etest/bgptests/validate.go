@@ -184,14 +184,26 @@ func execRouteGet(exec executor.Executor, family ipfamily.Family, dest string) (
 	return exec.Exec("bash", "-c", fmt.Sprintf("ip %s route get %s", ipFlag, dest))
 }
 
-func dumpBFDPairDebugInfo(cs clientset.Interface, nodeName string, containers []*frrcontainer.FRR) {
-	bfdDebugLog(nodeName, "collecting BFD pair debug info")
+func nodeForBFDDebug(nodes []corev1.Node) *corev1.Node {
+	for i := range nodes {
+		if _, ok := nodes[i].Labels["node-role.kubernetes.io/worker"]; ok {
+			return &nodes[i]
+		}
+	}
+	if len(nodes) > 0 {
+		return &nodes[0]
+	}
+	return nil
+}
 
-	node, err := cs.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		bfdDebugLog(nodeName, "failed to get node: %v", err)
+func dumpBFDPairDebugInfo(cs clientset.Interface, nodes []corev1.Node, containers []*frrcontainer.FRR) {
+	node := nodeForBFDDebug(nodes)
+	if node == nil {
+		ginkgo.GinkgoWriter.Printf("[BFD debug] no nodes available for debug dump\n")
 		return
 	}
+	nodeName := node.Name
+	bfdDebugLog(nodeName, "collecting BFD pair debug info (selected from %d cluster nodes)", len(nodes))
 
 	v4IPs, err := k8s.NodeIPsForFamily([]corev1.Node{*node}, ipfamily.IPv4, "")
 	if err != nil {
@@ -227,9 +239,9 @@ func dumpBFDPairDebugInfo(cs clientset.Interface, nodeName string, containers []
 					continue
 				}
 				if out, err := execRouteGet(nodeExec, family, addr); err != nil {
-					bfdDebugLog(nodeName, "worker0 (container exec) ip route get %s for container %s peer %s: err=%v out=%q", family, c.Name, addr, err, out)
+					bfdDebugLog(nodeName, "node (container exec) ip route get %s for container %s peer %s: err=%v out=%q", family, c.Name, addr, err, out)
 				} else {
-					bfdDebugLog(nodeName, "worker0 (container exec) ip route get %s for container %s peer %s: %s", family, c.Name, addr, strings.TrimSpace(out))
+					bfdDebugLog(nodeName, "node (container exec) ip route get %s for container %s peer %s: %s", family, c.Name, addr, strings.TrimSpace(out))
 				}
 				if speakerFRR != nil {
 					if out, err := execRouteGet(speakerFRR, family, addr); err != nil {
