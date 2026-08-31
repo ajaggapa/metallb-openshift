@@ -15,6 +15,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.universe.tf/e2etest/pkg/config"
+	"go.universe.tf/e2etest/pkg/executor"
 	"go.universe.tf/e2etest/pkg/frr"
 	frrcontainer "go.universe.tf/e2etest/pkg/frr/container"
 	"go.universe.tf/e2etest/pkg/ipfamily"
@@ -169,6 +170,135 @@ func frrIsPairedOnPods(cs clientset.Interface, n *frrcontainer.FRR, ipFamily ipf
 		}
 		return nil
 	}, 4*time.Minute, 1*time.Second).ShouldNot(HaveOccurred())
+}
+
+func bfdDebugLog(nodeName, format string, args ...interface{}) {
+	ginkgo.GinkgoWriter.Printf("[BFD debug %s] "+format+"\n", append([]interface{}{nodeName}, args...)...)
+}
+
+func execRouteGet(exec executor.Executor, family ipfamily.Family, dest string) (string, error) {
+	ipFlag := "-4"
+	if family == ipfamily.IPv6 {
+		ipFlag = "-6"
+	}
+	return exec.Exec("bash", "-c", fmt.Sprintf("ip %s route get %s", ipFlag, dest))
+}
+
+func dumpBFDPairDebugInfo(cs clientset.Interface, nodeName string, containers []*frrcontainer.FRR) {
+	bfdDebugLog(nodeName, "collecting BFD pair debug info")
+
+	node, err := cs.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		bfdDebugLog(nodeName, "failed to get node: %v", err)
+		return
+	}
+
+	v4IPs, err := k8s.NodeIPsForFamily([]corev1.Node{*node}, ipfamily.IPv4, "")
+	if err != nil {
+		bfdDebugLog(nodeName, "failed to get node IPv4 addresses: %v", err)
+	}
+	v6IPs, err := k8s.NodeIPsForFamily([]corev1.Node{*node}, ipfamily.IPv6, "")
+	if err != nil {
+		bfdDebugLog(nodeName, "failed to get node IPv6 addresses: %v", err)
+	}
+	bfdDebugLog(nodeName, "node IPv4 addresses: %v", v4IPs)
+	bfdDebugLog(nodeName, "node IPv6 addresses: %v", v6IPs)
+
+	speakerPod, err := metallb.SpeakerPodInNode(cs, nodeName)
+	if err != nil {
+		bfdDebugLog(nodeName, "failed to get speaker pod: %v", err)
+	} else {
+		bfdDebugLog(nodeName, "speaker pod: %s/%s", speakerPod.Namespace, speakerPod.Name)
+	}
+
+	var speakerFRR executor.Executor
+	if FRRProvider != nil && speakerPod != nil {
+		speakerFRR, err = FRRProvider.FRRExecutorFor(speakerPod.Namespace, speakerPod.Name)
+		if err != nil {
+			bfdDebugLog(nodeName, "failed to get speaker FRR executor: %v", err)
+		}
+	}
+
+	nodeExec := executor.ForContainer(nodeName)
+	for _, family := range []ipfamily.Family{ipfamily.IPv4, ipfamily.IPv6} {
+		for _, c := range containers {
+			for _, addr := range c.AddressesForFamily(family) {
+				if addr == "" {
+					continue
+				}
+				if out, err := execRouteGet(nodeExec, family, addr); err != nil {
+					bfdDebugLog(nodeName, "worker0 (container exec) ip route get %s for container %s peer %s: err=%v out=%q", family, c.Name, addr, err, out)
+				} else {
+					bfdDebugLog(nodeName, "worker0 (container exec) ip route get %s for container %s peer %s: %s", family, c.Name, addr, strings.TrimSpace(out))
+				}
+				if speakerFRR != nil {
+					if out, err := execRouteGet(speakerFRR, family, addr); err != nil {
+						bfdDebugLog(nodeName, "speaker frr ip route get %s for container %s peer %s: err=%v out=%q", family, c.Name, addr, err, out)
+					} else {
+						bfdDebugLog(nodeName, "speaker frr ip route get %s for container %s peer %s: %s", family, c.Name, addr, strings.TrimSpace(out))
+					}
+				}
+			}
+		}
+	}
+
+	if speakerFRR != nil {
+		if out, err := speakerFRR.Exec("vtysh", "-c", "show bfd vrf all peer json"); err != nil {
+			bfdDebugLog(nodeName, "speaker frr show bfd peers json failed: %v out=%q", err, out)
+		} else {
+			bfdDebugLog(nodeName, "speaker frr BFD peers json:\n%s", out)
+		}
+		if out, err := speakerFRR.Exec("vtysh", "-c", "show bfd vrf all peer"); err != nil {
+			bfdDebugLog(nodeName, "speaker frr show bfd peers failed: %v out=%q", err, out)
+		} else {
+			bfdDebugLog(nodeName, "speaker frr BFD peers:\n%s", out)
+		}
+		if out, err := speakerFRR.Exec("bash", "-c", "ip -4 route; echo '---'; ip -6 route"); err != nil {
+			bfdDebugLog(nodeName, "speaker frr routes failed: %v out=%q", err, out)
+		} else {
+			bfdDebugLog(nodeName, "speaker frr routes:\n%s", out)
+		}
+	}
+
+	for _, c := range containers {
+		bfdDebugLog(nodeName, "container %s addresses: ipv4=%s ipv6=%s vrf=%q", c.Name, c.Ipv4, c.Ipv6, c.RouterConfig.VRF)
+
+		bfdPeers, err := frr.BFDPeers(c.Executor)
+		if err != nil {
+			bfdDebugLog(nodeName, "container %s failed to get BFD peers: %v", c.Name, err)
+		} else {
+			bfdDebugLog(nodeName, "container %s BFD peers (%d): [%s]", c.Name, len(bfdPeers), bfdPeersStatusSummary(bfdPeers))
+			for _, peer := range bfdPeers {
+				bfdDebugLog(nodeName, "container %s BFD peer %s: %s", c.Name, peer.Peer, bfdPeerDebugString(peer))
+			}
+		}
+
+		if out, err := c.Executor.Exec("vtysh", "-c", "show bfd vrf all peer"); err != nil {
+			bfdDebugLog(nodeName, "container %s show bfd peers failed: %v out=%q", c.Name, err, out)
+		} else {
+			bfdDebugLog(nodeName, "container %s BFD peers (vtysh):\n%s", c.Name, out)
+		}
+
+		for _, family := range []ipfamily.Family{ipfamily.IPv4, ipfamily.IPv6} {
+			nodeIPs := v4IPs
+			if family == ipfamily.IPv6 {
+				nodeIPs = v6IPs
+			}
+			for _, ip := range nodeIPs {
+				if out, err := execRouteGet(c.Executor, family, ip); err != nil {
+					bfdDebugLog(nodeName, "container %s ip route get %s for node peer %s: err=%v out=%q", c.Name, family, ip, err, out)
+				} else {
+					bfdDebugLog(nodeName, "container %s ip route get %s for node peer %s: %s", c.Name, family, ip, strings.TrimSpace(out))
+				}
+			}
+		}
+
+		if out, err := c.Executor.Exec("bash", "-c", "ip -4 route; echo '---'; ip -6 route"); err != nil {
+			bfdDebugLog(nodeName, "container %s routes failed: %v out=%q", c.Name, err, out)
+		} else {
+			bfdDebugLog(nodeName, "container %s routes:\n%s", c.Name, out)
+		}
+	}
 }
 
 func bfdPeerDebugString(peer frr.BFDPeer) string {

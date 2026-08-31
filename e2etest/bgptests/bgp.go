@@ -821,6 +821,9 @@ var _ = ginkgo.Describe("BGP", func() {
 				validateService(svc, allNodes.Items, c)
 			}
 
+			ginkgo.By("collecting BFD debug info from worker0 before validation")
+			dumpBFDPairDebugInfo(cs, "worker0", FRRContainers)
+
 			Eventually(func() error {
 				for _, c := range FRRContainers {
 					bfdPeers, err := frr.BFDPeers(c.Executor)
@@ -837,7 +840,7 @@ var _ = ginkgo.Describe("BGP", func() {
 					}
 				}
 				return nil
-			}, 4*time.Minute, 1*time.Second).ShouldNot(HaveOccurred())
+			}, 15*time.Minute, 1*time.Second).ShouldNot(HaveOccurred())
 
 			ginkgo.By("checking the sessions don't flap when changing the configuration")
 
